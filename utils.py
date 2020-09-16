@@ -14,14 +14,15 @@ def load_data(path="./data/cora/", dataset="cora"):
     """Load citation network dataset (cora only for now)"""
     print('Loading {} dataset...'.format(dataset))
 
-    idx_features_labels = np.genfromtxt("{}{}.content".format(path, dataset), dtype=np.dtype(str))
+    # idx_features_labels = np.genfromtxt("{}{}.content".format(path, dataset), dtype=np.dtype(str))
+    idx_features_labels, edges_unordered = dataset_sample(path, dataset, sample_factor=5)
     features = sp.csr_matrix(idx_features_labels[:, 1:-1], dtype=np.float32)
     labels = encode_onehot(idx_features_labels[:, -1])
 
     # build graph
     idx = np.array(idx_features_labels[:, 0], dtype=np.int32)
     idx_map = {j: i for i, j in enumerate(idx)}
-    edges_unordered = np.genfromtxt("{}{}.cites".format(path, dataset), dtype=np.int32)
+    # edges_unordered = np.genfromtxt("{}{}.cites".format(path, dataset), dtype=np.int32)
     edges = np.array(list(map(idx_map.get, edges_unordered.flatten())), dtype=np.int32).reshape(edges_unordered.shape)
     adj = sp.coo_matrix((np.ones(edges.shape[0]), (edges[:, 0], edges[:, 1])), shape=(labels.shape[0], labels.shape[0]),
                         dtype=np.float32)
@@ -73,19 +74,18 @@ def accuracy(output, labels):
     return correct / len(labels)
 
 
-def dataset_sample(pth="./data/cora/", dataset="cora", sample_factor=3):
+def dataset_sample(pth="./data/cora/", dataset="cora", sample_factor=3, verbose=False):
     idx_features_labels = np.genfromtxt("{}{}.content".format(pth, dataset), dtype=np.dtype(str))
 
-    features = sp.csr_matrix(idx_features_labels[:, 1:-1], dtype=np.float32)  # 1400 dim binary dictionary
-    labels = encode_onehot(idx_features_labels[:, -1])  # onehot encoded paper type(str)
     edges_unordered = np.genfromtxt("{}{}.cites".format(pth, dataset), dtype=np.int32)
-
+    edges_sample = []
     # get paper id
     idx = np.array(idx_features_labels[:, 0], dtype=np.int32)
 
     # randomly choose paper from idx set
     random_mask = np.random.choice(len(idx), sample_factor)
     sample_idx = idx[random_mask]
+    print("randomly chosen samples: {}".format(sample_idx))
 
     # traverse graph to obtain connected individuals
     seen = sample_idx
@@ -97,14 +97,31 @@ def dataset_sample(pth="./data/cora/", dataset="cora", sample_factor=3):
         for v in seen_last:
             conn = edges_unordered[np.where(edges_unordered[:, 0] == v)[0], 1]
             # print(conn)
-            conn_new = [n for n in conn if n not in seen]
-            seen = np.append(seen, conn_new)
-            seen_new = np.append(seen_new, conn_new)
-            print(seen_new)
-        print("step {}, add {} nodes".format(i, len(seen_new)))
+            for c in conn:
+                if c in seen:
+                    continue
+                seen = np.append(seen, c)
+                seen_new = np.append(seen_new, c)
+                edges_sample.append([v, c])
+            # print(seen_new)
+        if verbose:
+            print("step {}, add {} nodes".format(i, len(seen_new)))
         i += 1
         if len(seen_new) == 0: break
         seen_last = seen_new
+
+    if verbose:
+        print("sampled {} nodes, are {}".format(len(seen), seen))
+        print(edges_sample)
+        # for v in seen:
+        #     conn = edges_unordered[np.where(edges_unordered[:, 0] == v)[0], 1]
+        #     print("{}: {}".format(v, conn))
+        #     for c in conn:
+        #         print("{} is at position {}".format(c, np.where(seen == v)[0]))
+    seen = seen.astype(int)
+    idx_sample = [np.where(idx_features_labels[:, 0] == str(x))[0].item() for x in seen]
+    idx_features_sample = idx_features_labels[idx_sample]
+    return idx_features_sample, np.array(edges_sample)
 
     # idx_features_labels = idx_features_labels[np.random.choice(cnt, int(.1 * cnt)), :]
     # features = sp.csr_matrix(idx_features_labels[:, 1:-1], dtype=np.float32)
@@ -112,4 +129,4 @@ def dataset_sample(pth="./data/cora/", dataset="cora", sample_factor=3):
 
 
 if __name__ == '__main__':
-    dataset_sample()
+    idx_features_labels, edges_unordered = dataset_sample(verbose=False)
