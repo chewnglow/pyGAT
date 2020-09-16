@@ -10,7 +10,8 @@ class GAT(nn.Module):
         super(GAT, self).__init__()
         self.dropout = dropout
 
-        self.attentions = [GraphAttentionLayer(nfeat, nhid, dropout=dropout, alpha=alpha, concat=True) for _ in range(nheads)]
+        self.attentions = [GraphAttentionLayer(nfeat, nhid, dropout=dropout, alpha=alpha, concat=True) for _ in
+                           range(nheads)]
         for i, attention in enumerate(self.attentions):
             self.add_module('attention_{}'.format(i), attention)
 
@@ -30,18 +31,18 @@ class SpGAT(nn.Module):
         super(SpGAT, self).__init__()
         self.dropout = dropout
 
-        self.attentions = [SpGraphAttentionLayer(nfeat, 
-                                                 nhid, 
-                                                 dropout=dropout, 
-                                                 alpha=alpha, 
+        self.attentions = [SpGraphAttentionLayer(nfeat,
+                                                 nhid,
+                                                 dropout=dropout,
+                                                 alpha=alpha,
                                                  concat=True) for _ in range(nheads)]
         for i, attention in enumerate(self.attentions):
             self.add_module('attention_{}'.format(i), attention)
 
-        self.out_att = SpGraphAttentionLayer(nhid * nheads, 
-                                             nclass, 
-                                             dropout=dropout, 
-                                             alpha=alpha, 
+        self.out_att = SpGraphAttentionLayer(nhid * nheads,
+                                             nclass,
+                                             dropout=dropout,
+                                             alpha=alpha,
                                              concat=False)
 
     def forward(self, x, adj):
@@ -50,4 +51,3 @@ class SpGAT(nn.Module):
         x = F.dropout(x, self.dropout, training=self.training)
         x = F.elu(self.out_att(x, adj))
         return F.log_softmax(x, dim=1)
-
