@@ -10,19 +10,21 @@ def encode_onehot(labels):
     return labels_onehot
 
 
-def load_data(path="./data/cora/", dataset="cora"):
+def load_data(path="./data/cora/", dataset="cora", sample=True):
     """Load citation network dataset (cora only for now)"""
     print('Loading {} dataset...'.format(dataset))
+    if sample:
+        idx_features_labels, edges_unordered = dataset_sample(path, dataset, sample_factor=5, verbose=True)
+    else:
+        idx_features_labels = np.genfromtxt("{}{}.content".format(path, dataset), dtype=np.dtype(str))
+        edges_unordered = np.genfromtxt("{}{}.cites".format(path, dataset), dtype=np.int32)
 
-    # idx_features_labels = np.genfromtxt("{}{}.content".format(path, dataset), dtype=np.dtype(str))
-    idx_features_labels, edges_unordered = dataset_sample(path, dataset, sample_factor=5)
     features = sp.csr_matrix(idx_features_labels[:, 1:-1], dtype=np.float32)
     labels = encode_onehot(idx_features_labels[:, -1])
 
     # build graph
     idx = np.array(idx_features_labels[:, 0], dtype=np.int32)
     idx_map = {j: i for i, j in enumerate(idx)}
-    # edges_unordered = np.genfromtxt("{}{}.cites".format(path, dataset), dtype=np.int32)
     edges = np.array(list(map(idx_map.get, edges_unordered.flatten())), dtype=np.int32).reshape(edges_unordered.shape)
     adj = sp.coo_matrix((np.ones(edges.shape[0]), (edges[:, 0], edges[:, 1])), shape=(labels.shape[0], labels.shape[0]),
                         dtype=np.float32)
@@ -80,36 +82,35 @@ def dataset_sample(pth="./data/cora/", dataset="cora", sample_factor=3, verbose=
     edges_unordered = np.genfromtxt("{}{}.cites".format(pth, dataset), dtype=np.int32)
     edges_sample = []
     # get paper id
-    idx = np.array(idx_features_labels[:, 0], dtype=np.int32)
+    source_nodes = np.unique(edges_unordered[:, 0])
+    idx = np.array(source_nodes, dtype=np.int32)
 
     # randomly choose paper from idx set
-    random_mask = np.random.choice(len(idx), sample_factor)
-    sample_idx = idx[random_mask]
+    sample_idx = idx[np.random.choice(len(idx), sample_factor)]
     print("randomly chosen samples: {}".format(sample_idx))
 
     # traverse graph to obtain connected individuals
     seen = sample_idx
     seen_last = seen
     i = 0
+
     while True:
-        # obtain connected nodes
+        # obtain source nodes
         seen_new = np.array([])
         for v in seen_last:
             conn = edges_unordered[np.where(edges_unordered[:, 0] == v)[0], 1]
-            # print(conn)
             for c in conn:
                 if c in seen:
                     continue
                 seen = np.append(seen, c)
                 seen_new = np.append(seen_new, c)
                 edges_sample.append([v, c])
-            # print(seen_new)
         if verbose:
             print("step {}, add {} nodes".format(i, len(seen_new)))
         i += 1
         if len(seen_new) == 0: break
         seen_last = seen_new
-
+    edges_sample = np.array(edges_sample, dtype=np.int32)
     if verbose:
         print("sampled {} nodes, are {}".format(len(seen), seen))
         print(edges_sample)
@@ -121,7 +122,7 @@ def dataset_sample(pth="./data/cora/", dataset="cora", sample_factor=3, verbose=
     seen = seen.astype(int)
     idx_sample = [np.where(idx_features_labels[:, 0] == str(x))[0].item() for x in seen]
     idx_features_sample = idx_features_labels[idx_sample]
-    return idx_features_sample, np.array(edges_sample)
+    return idx_features_sample, edges_sample
 
     # idx_features_labels = idx_features_labels[np.random.choice(cnt, int(.1 * cnt)), :]
     # features = sp.csr_matrix(idx_features_labels[:, 1:-1], dtype=np.float32)
