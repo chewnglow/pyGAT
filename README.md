@@ -19,9 +19,17 @@ The repo has been forked initially from https://github.com/tkipf/pygcn. The offi
 
 The branch **master** contains the implementation from the paper. The branch **similar_impl_tensorflow** the implementation from the official Tensorflow repository.
 
+# Dataset
+This test is performed on the CORA dataset. Each paper has an ID, a set of key words and a category. 
+The ID is an integer and the category is a string, which is one-hot encoded in the parsing.  Furthermore,  the key word existence is represented by binary marker.
+The cite info is represented by a directed acyclic graph which direction represents the cite relationship. 
+`cora.content` stores the info of individual papers, while `cora.cites` stores the cite information.
+Notice only nodes with ID < 1000000 are cited by at least one paper, while ID > 1000000 are not cited by others.   
+
 # Sampling
 Dataset sampling is supported for convenience on CPU running and module debugging.  
 Options of sampling switch and sampled dataset size can be found in `load_data()` in `utils.py`
+Initial node is chosen in ID<1000000, which means must been cited by at least one paper. 
 
 # Performances
 
