@@ -1,6 +1,26 @@
 import numpy as np
 import scipy.sparse as sp
 import torch
+from pandas import DataFrame
+from surprise import SVD, Reader, Dataset
+from surprise.model_selection import cross_validate
+
+
+def load_raw(path="./data/cora/", dataset="cora"):
+    idx_features_labels = np.genfromtxt("{}{}.content".format(path, dataset), dtype=np.dtype(str))
+    edges_unordered = np.genfromtxt("{}{}.cites".format(path, dataset), dtype=np.int32)
+    features = sp.csr_matrix(idx_features_labels[:, 1:-1], dtype=np.float32)
+    labels = encode_onehot(idx_features_labels[:, -1])
+    return features, labels, edges_unordered
+
+
+def svd_train():
+    idx_features_labels, _, _ = load_raw()
+    rd = Reader(rating_scale=(0, 1))
+    idx_features_labels = DataFrame(idx_features_labels)
+    data = Dataset.load_from_df(df=idx_features_labels, reader=rd)
+    alg = SVD()
+    cross_validate(alg, data, measures=['RMSE', 'MAE'], cv=5, verbose=True)
 
 
 def encode_onehot(labels):
@@ -10,7 +30,7 @@ def encode_onehot(labels):
     return labels_onehot
 
 
-def load_data(path="./data/cora/", dataset="cora", sample=True):
+def load_data(path="./data/cora/", dataset="cora", sample=False):
     """Load citation network dataset (cora only for now)"""
     print('Loading {} dataset...'.format(dataset))
     if sample:
@@ -130,4 +150,4 @@ def dataset_sample(pth="./data/cora/", dataset="cora", sample_factor=3, verbose=
 
 
 if __name__ == '__main__':
-    idx_features_labels, edges_unordered = dataset_sample(verbose=False)
+    svd_train()
