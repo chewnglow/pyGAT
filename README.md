@@ -19,6 +19,18 @@ The repo has been forked initially from https://github.com/tkipf/pygcn. The offi
 
 The branch **master** contains the implementation from the paper. The branch **similar_impl_tensorflow** the implementation from the official Tensorflow repository.
 
+# Dataset
+This test is performed on the CORA dataset. Each paper has an ID, a set of key words and a category. 
+The ID is an integer and the category is a string, which is one-hot encoded in the parsing.  Furthermore,  the key word existence is represented by binary marker.
+The cite info is represented by a directed acyclic graph which direction represents the cite relationship. 
+`cora.content` stores the info of individual papers, while `cora.cites` stores the cite information.
+Notice only nodes with ID < 1000000 are cited by at least one paper, while ID > 1000000 are not cited by others.   
+
+# Sampling
+Dataset sampling is supported for convenience on CPU running and module debugging.  
+Options of sampling switch and sampled dataset size can be found in `load_data()` in `utils.py`
+Initial node is chosen in ID<1000000, which means must been cited by at least one paper. 
+
 # Performances
 
 For the branch **master**, the training of the transductive learning on Cora task on a Titan Xp takes ~0.9 sec per epoch and 10-15 minutes for the whole training (~800 epochs). The final accuracy is between 84.2 and 85.3 (obtained on 5 different runs). For the branch **similar_impl_tensorflow**, the training takes less than 1 minute and reach ~83.0.
@@ -31,7 +43,7 @@ We develop a sparse version GAT using pytorch. There are numerically instability
 
 # Requirements
 
-pyGAT relies on Python 3.5 and PyTorch 0.4.1 (due to torch.sparse_coo_tensor).
+Run on CUDA 11.0 + pytorch 1.6.0
 
 # Issues/Pull Requests/Feedbacks
 
