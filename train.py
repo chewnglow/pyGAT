@@ -14,14 +14,15 @@ import torch.optim as optim
 from torch.autograd import Variable
 
 from utils import load_data, accuracy
-from models import GAT, SpGAT
+from models import GAT, SpGAT, PosGAT
 
 # Training settings
 parser = argparse.ArgumentParser()
 parser.add_argument('--no-cuda', action='store_true', default=False, help='Disables CUDA training.')
+parser.add_argument('--parallel', action='store_true', default=False, help='Enables multi-GPU computing.')
 parser.add_argument('--fastmode', action='store_true', default=False, help='Validate during training pass.')
 parser.add_argument('--sparse', action='store_true', default=False, help='GAT with sparse version or not.')
-parser.add_argument('--seed', type=int, default=72, help='Random seed.')
+parser.add_argument('--seed', type=int, default=114514, help='Random seed.')
 parser.add_argument('--epochs', type=int, default=10000, help='Number of epochs to train.')
 parser.add_argument('--lr', type=float, default=0.005, help='Initial learning rate.')
 parser.add_argument('--weight_decay', type=float, default=5e-4, help='Weight decay (L2 loss on parameters).')
@@ -30,39 +31,52 @@ parser.add_argument('--nb_heads', type=int, default=8, help='Number of head atte
 parser.add_argument('--dropout', type=float, default=0.6, help='Dropout rate (1 - keep probability).')
 parser.add_argument('--alpha', type=float, default=0.2, help='Alpha for the leaky_relu.')
 parser.add_argument('--patience', type=int, default=100, help='Patience')
+parser.add_argument('--use_nmf', dest="use_nmf", default=True, action="store_true", help='Whether to use NMF')
+parser.add_argument('--n-topic', dest="n_topic", default=7, help='the topic count of NMF')
+
 
 args = parser.parse_args()
+use_nmf = args.use_nmf
+print("use_nmf = {}".format(use_nmf))
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
 random.seed(args.seed)
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 if args.cuda:
+    os.environ["CUDA_VISIBLE_DEVICES"] = "3"
     torch.cuda.manual_seed(args.seed)
 
-# Load data
-adj, features, labels, idx_train, idx_val, idx_test = load_data()
 
+# Load data
+# TODO: introduce parsed argument here
+adj, features, labels, idx_train, idx_val, idx_test = load_data(use_nmf=use_nmf, n_topic=args.n_topic)
+n_feature = features.shape[1] // 2 if use_nmf else features.shape[1]
 # Model and optimizer
 if args.sparse:
-    model = SpGAT(nfeat=features.shape[1], 
+    model = SpGAT(nfeat=n_feature,
                 nhid=args.hidden, 
                 nclass=int(labels.max()) + 1, 
                 dropout=args.dropout, 
                 nheads=args.nb_heads, 
                 alpha=args.alpha)
 else:
-    model = GAT(nfeat=features.shape[1], 
+    model = GAT(nfeat=n_feature,
                 nhid=args.hidden, 
                 nclass=int(labels.max()) + 1, 
                 dropout=args.dropout, 
                 nheads=args.nb_heads, 
-                alpha=args.alpha)
+                alpha=args.alpha,
+                use_nmf=use_nmf)
+
+
 optimizer = optim.Adam(model.parameters(), 
                        lr=args.lr, 
                        weight_decay=args.weight_decay)
 
 if args.cuda:
+    if args.parallel:
+        model = nn.DataParallel(model)
     model.cuda()
     features = features.cuda()
     adj = adj.cuda()
@@ -75,6 +89,7 @@ features, adj, labels = Variable(features), Variable(adj), Variable(labels)
 
 
 def train(epoch):
+    torch.autograd.set_detect_anomaly(True)
     t = time.time()
     model.train()
     optimizer.zero_grad()

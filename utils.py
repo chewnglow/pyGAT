@@ -2,8 +2,9 @@ import numpy as np
 import scipy.sparse as sp
 import torch
 from pandas import DataFrame
-from surprise import SVD, Reader, Dataset
-from surprise.model_selection import cross_validate
+# from surprise import SVD, Reader, Dataset
+# from surprise.model_selection import cross_validate
+from sklearn.decomposition import NMF
 
 
 def load_raw(path="./data/cora/", dataset="cora"):
@@ -14,13 +15,13 @@ def load_raw(path="./data/cora/", dataset="cora"):
     return features, labels, edges_unordered
 
 
-def svd_train():
-    idx_features_labels, _, _ = load_raw()
-    rd = Reader(rating_scale=(0, 1))
-    idx_features_labels = DataFrame(idx_features_labels)
-    data = Dataset.load_from_df(df=idx_features_labels, reader=rd)
-    alg = SVD()
-    cross_validate(alg, data, measures=['RMSE', 'MAE'], cv=5, verbose=True)
+def nmf_train(sp, n_topic):
+    sp_df = DataFrame(sp)
+    model = NMF(n_components=n_topic, init="random", random_state=0, verbose=True)
+    W = model.fit_transform(sp_df)
+    H = model.components_
+    # W, H = torch.from_numpy(W), torch.from_numpy(H)
+    return W, H
 
 
 def encode_onehot(labels):
@@ -30,7 +31,7 @@ def encode_onehot(labels):
     return labels_onehot
 
 
-def load_data(path="./data/cora/", dataset="cora", sample=False):
+def load_data(path="./data/cora/", dataset="cora", sample=False, use_nmf=False, n_topic=10):
     """Load citation network dataset (cora only for now)"""
     print('Loading {} dataset...'.format(dataset))
     if sample:
@@ -38,9 +39,16 @@ def load_data(path="./data/cora/", dataset="cora", sample=False):
     else:
         idx_features_labels = np.genfromtxt("{}{}.content".format(path, dataset), dtype=np.dtype(str))
         edges_unordered = np.genfromtxt("{}{}.cites".format(path, dataset), dtype=np.int32)
+        features = sp.csr_matrix(idx_features_labels[:, 1:-1], dtype=np.float32)
+        labels = encode_onehot(idx_features_labels[:, -1])
 
-    features = sp.csr_matrix(idx_features_labels[:, 1:-1], dtype=np.float32)
-    labels = encode_onehot(idx_features_labels[:, -1])
+    features = features.todense()
+
+    if use_nmf:
+        n = features.shape[0]
+        _, pos_mat = nmf_train(features, n_topic)
+        pos_vec = np.mean(pos_mat, axis=0)
+        features = np.concatenate((features, [pos_vec for _ in range(n)]), axis=1)  # n * 2m
 
     # build graph
     idx = np.array(idx_features_labels[:, 0], dtype=np.int32)
@@ -60,7 +68,7 @@ def load_data(path="./data/cora/", dataset="cora", sample=False):
     idx_test = range(500, 1500)
 
     adj = torch.FloatTensor(np.array(adj.todense()))
-    features = torch.FloatTensor(np.array(features.todense()))
+    features = torch.FloatTensor(np.array(features))
     labels = torch.LongTensor(np.where(labels)[1])
 
     idx_train = torch.LongTensor(idx_train)
@@ -76,7 +84,7 @@ def normalize_adj(mx):
     r_inv_sqrt = np.power(rowsum, -0.5).flatten()
     r_inv_sqrt[np.isinf(r_inv_sqrt)] = 0.
     r_mat_inv_sqrt = sp.diags(r_inv_sqrt)
-    return mx.dot(r_mat_inv_sqrt).transpose().dot(r_mat_inv_sqrt)
+    return mx.dot(r_mat_inv_sqrt).T.dot(r_mat_inv_sqrt)
 
 
 def normalize_features(mx):
@@ -150,4 +158,4 @@ def dataset_sample(pth="./data/cora/", dataset="cora", sample_factor=3, verbose=
 
 
 if __name__ == '__main__':
-    svd_train()
+    load_data(use_nmf=True)
