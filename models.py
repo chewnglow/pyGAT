@@ -5,14 +5,15 @@ from layers import GraphAttentionLayer, SpGraphAttentionLayer, PosEmbeddingLayer
 
 
 class GAT(nn.Module):
-    def __init__(self, nfeat, nhid, nclass, dropout, alpha, nheads, use_nmf=False):
+    def __init__(self, nfeat, nitem, nhid, nclass, dropout, alpha, nheads, ntopic, use_nmf=False):
         """Dense version of GAT."""
         super(GAT, self).__init__()
         self.dropout = dropout
         self.use_nmf = use_nmf
-        if use_nmf:
-            self.input_linear = nn.Linear(nfeat * 2, nfeat)
-
+        self.nitem = nitem
+        # if use_nmf:
+        self.input_linear = nn.Linear(nfeat * 2, nfeat)
+        self.nmf_simulator = nn.Linear(nitem, ntopic)
         self.attentions = [GraphAttentionLayer(nfeat, nhid, dropout=dropout, alpha=alpha, concat=True) for _ in
                            range(nheads)]
         for i, attention in enumerate(self.attentions):
@@ -22,8 +23,11 @@ class GAT(nn.Module):
 
     def forward(self, x, adj):
         # x = torch.unsqueeze(x, 1)
-        if self.use_nmf:
-            x = self.input_linear(x)
+        pos_mat = self.nmf_simulator(x.T)
+        pos_vec = torch.mean(pos_mat, dim=1)
+        x = torch.cat((x, torch.stack([pos_vec for _ in range(self.nitem)])), dim=1)
+        x = F.dropout(x, self.dropout, training=self.training)
+        x = self.input_linear(x)
         x = F.dropout(x, self.dropout, training=self.training)
         x = torch.cat([att(x, adj) for att in self.attentions], dim=1)
         x = F.dropout(x, self.dropout, training=self.training)

@@ -31,8 +31,8 @@ parser.add_argument('--nb_heads', type=int, default=8, help='Number of head atte
 parser.add_argument('--dropout', type=float, default=0.6, help='Dropout rate (1 - keep probability).')
 parser.add_argument('--alpha', type=float, default=0.2, help='Alpha for the leaky_relu.')
 parser.add_argument('--patience', type=int, default=100, help='Patience')
-parser.add_argument('--use_nmf', dest="use_nmf", default=True, action="store_true", help='Whether to use NMF')
-parser.add_argument('--n-topic', dest="n_topic", default=7, help='the topic count of NMF')
+parser.add_argument('--use_nmf', dest="use_nmf", default=False, action="store_true", help='Whether to use NMF')
+parser.add_argument('--n-topic', dest="n_topic", default=514, help='the topic count of NMF')
 
 
 args = parser.parse_args()
@@ -40,12 +40,12 @@ use_nmf = args.use_nmf
 print("use_nmf = {}".format(use_nmf))
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
-random.seed(args.seed)
-np.random.seed(args.seed)
-torch.manual_seed(args.seed)
+# random.seed(args.seed)
+# np.random.seed(args.seed)
+# torch.manual_seed(args.seed)
 if args.cuda:
     os.environ["CUDA_VISIBLE_DEVICES"] = "3"
-    torch.cuda.manual_seed(args.seed)
+    # torch.cuda.manual_seed(args.seed)
 
 
 # Load data
@@ -58,15 +58,17 @@ if args.sparse:
                 nhid=args.hidden, 
                 nclass=int(labels.max()) + 1, 
                 dropout=args.dropout, 
-                nheads=args.nb_heads, 
+                nheads=args.nb_heads,
                 alpha=args.alpha)
 else:
     model = GAT(nfeat=n_feature,
+                nitem=features.shape[0],
                 nhid=args.hidden, 
                 nclass=int(labels.max()) + 1, 
                 dropout=args.dropout, 
                 nheads=args.nb_heads, 
                 alpha=args.alpha,
+                ntopic=args.n_topic,
                 use_nmf=use_nmf)
 
 
