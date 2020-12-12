@@ -3,14 +3,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-def similarity(x1,x2):
-    sim=torch.cosine_similarity(x1,x2,dim=0)
-    x=sim*torch.cat((x1,x2),0)
-    return x
-
 class NMF_Nodes(nn.Module):
     def __init__(self,input_feature,
-                 topic_s=3,topic_e=10):
+                 topic_s=5,topic_e=10):
         super(NMF_Nodes, self).__init__()
         self.H_list=[]
         self.topic_s=topic_s
@@ -30,40 +25,51 @@ class NMF_Nodes(nn.Module):
 
     def forward(self, x):
         W_list=[]
-        for i in range(self.topic_e-self.topic_s):
+        for i in range(self.topic_e-self.topic_s+1):
             W=torch.matmul(x,self.H_list[:,:,i])
             W=W.unsqueeze(2)
             # print('Ws',W)
             W_list.append(W)
         W_list=torch.cat([W for W in W_list],2)
         # print('W',W_list.shape)
-        nodes_num=int(x.shape[0])
+        N,D=int(x.shape[0]),int(x.shape[1])
+        # print('x shape',x.shape)
         #TODO similarity or attention?
-        new_nodes=[]
-        for i in range(nodes_num):
-            anchor_node=similarity(x[i],x[i])
-            for j in range(nodes_num):
-                if j==i:continue
-                anchor_node_j=similarity(x[i],x[j])
-                counts=0
-                for t in range(self.topic_e-self.topic_s):
-                    max_si=torch.argmax(W_list[i,:,t])
-                    max_s2=torch.argmax(W_list[j,:,t])
-                    if max_si==max_s2:
-                        counts+=1
-                anchor_node = anchor_node + counts/(self.topic_e-self.topic_s)*anchor_node_j
-            anchor_node = anchor_node/nodes_num
-            new_nodes.append(anchor_node.unsqueeze(0))
-        new_nodes=torch.cat([n for n in new_nodes],0)
+        t1 = x.repeat(N, 1)
+        t2 = x.repeat(1, N).reshape(-1, D)
+        t = torch.cat((t1, t2), 1)
+        sim = torch.cosine_similarity(t1, t2)
+        sim = sim.unsqueeze(0)
+        t = sim.T * t
+        t = t.reshape(N, N, -1)
+
+        W_max = torch.argmax(W_list, dim=1)
+        # print(W_max,W_max.shape)
+        W1 = W_max.repeat(N, 1).reshape(-1, N, self.topic_e - self.topic_s + 1)
+        W2 = W_max.repeat(1, N).reshape(-1, N, self.topic_e - self.topic_s + 1)
+        # print(W1)
+        # print(W2)
+        comp = torch.eq(W1, W2)
+        topic_count = torch.sum(comp, dim=2, keepdim=True)
+        topic_count = torch.div(topic_count.float(), self.topic_e - self.topic_s + 1)
+
+        new_n = topic_count * t
+        new_nodes = torch.mean(new_n, dim=0)
         # print('nodes',new_nodes.shape)
         return new_nodes
+
+
+
+
+
+
 
 class GraphAttentionLayer(nn.Module):
     """
     Simple GAT layer, similar to https://arxiv.org/abs/1710.10903
     """
 
-    def __init__(self, in_features, out_features, dropout, alpha, concat=True,NMF=False):
+    def __init__(self, in_features, out_features, dropout, alpha, concat=True,useNMF=False):
         super(GraphAttentionLayer, self).__init__()
         self.dropout = dropout
         self.in_features = in_features
@@ -83,12 +89,12 @@ class GraphAttentionLayer(nn.Module):
     def forward(self, input, adj):
         # adding weight for input
         # adj means adjency matrix
-        print('att h0', input.shape)
+        # print('att h0', input.shape)
 
 
         h = torch.mm(input, self.W)
         N = h.size()[0]
-        print('att h',h.shape)
+        # print('att h',h.shape)
 
         a_input = torch.cat([h.repeat(1, N).view(N * N, -1), h.repeat(N, 1)], dim=1)
 
@@ -139,15 +145,15 @@ class MFGraphAttentionLayer(nn.Module):
     def forward(self, input, adj):
         # adding weight for input
         # adj means adjency matrix
-        print('h0', input.shape)
-        self.NMFs(input)
+        # print('h0', input.shape)
+        # self.NMFs(input)
         h = torch.mm(input, self.W)
         N = h.size()[0]
-        print('h',h.shape)
+        # print('h',h.shape)
 
         a_input = torch.cat([h.repeat(1, N).view(N * N, -1), h.repeat(N, 1)], dim=1)
 
-        print('a',a_input.shape)
+        # print('a',a_input.shape)
         a_input = a_input.view(N, -1, 2 * self.out_features)
         e = self.leakyrelu(torch.matmul(a_input, self.a).squeeze(2))
         # print('e',e.shape)
