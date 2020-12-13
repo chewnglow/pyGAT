@@ -76,6 +76,7 @@ class GraphAttentionLayer(nn.Module):
         self.out_features = out_features
         self.alpha = alpha
         self.concat = concat
+        self.useNMF=useNMF
 
         self.W = nn.Parameter(torch.zeros(size=(in_features, out_features)))
         nn.init.xavier_uniform_(self.W.data, gain=1.414)
@@ -83,15 +84,17 @@ class GraphAttentionLayer(nn.Module):
         nn.init.xavier_uniform_(self.a.data, gain=1.414)
 
         self.leakyrelu = nn.LeakyReLU(self.alpha)
-
-        self.NMFs=NMF_Nodes(input_feature=in_features)
+        
+        if self.useNMF:
+            self.NMFs=NMF_Nodes(input_feature=in_features)
 
     def forward(self, input, adj):
         # adding weight for input
         # adj means adjency matrix
         # print('att h0', input.shape)
 
-
+        if self.useNMF:
+            input=self.NMFs(input)
         h = torch.mm(input, self.W)
         N = h.size()[0]
         # print('att h',h.shape)
