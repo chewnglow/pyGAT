@@ -14,7 +14,7 @@ import torch.optim as optim
 from torch.autograd import Variable
 
 from utils import load_data, accuracy
-from models import GAT, SpGAT, PosGAT
+from models import GAT, SpGAT, MFGAT
 
 # Training settings
 parser = argparse.ArgumentParser()
@@ -44,14 +44,15 @@ args.cuda = not args.no_cuda and torch.cuda.is_available()
 # np.random.seed(args.seed)
 # torch.manual_seed(args.seed)
 if args.cuda:
-    os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
     # torch.cuda.manual_seed(args.seed)
 
 
 # Load data
 # TODO: introduce parsed argument here
 adj, features, labels, idx_train, idx_val, idx_test = load_data(use_nmf=use_nmf, n_topic=args.n_topic)
-n_feature = features.shape[1] // 2 if use_nmf else features.shape[1]
+# n_feature = features.shape[1] // 2 if use_nmf else features.shape[1]
+n_feature = features.shape[1]
 # Model and optimizer
 if args.sparse:
     model = SpGAT(nfeat=n_feature,
@@ -62,14 +63,11 @@ if args.sparse:
                 alpha=args.alpha)
 else:
     model = GAT(nfeat=n_feature,
-                nitem=features.shape[0],
                 nhid=args.hidden, 
                 nclass=int(labels.max()) + 1, 
                 dropout=args.dropout, 
                 nheads=args.nb_heads, 
-                alpha=args.alpha,
-                ntopic=args.n_topic,
-                use_nmf=use_nmf)
+                alpha=args.alpha)
 
 
 optimizer = optim.Adam(model.parameters(), 
