@@ -3,6 +3,61 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# def similarity(x1,x2):
+#     sim=torch.cosine_similarity(x1,x2,dim=0)
+#     x=sim*torch.cat((x1,x2),0)
+#     return x
+#
+# class NMF_Nodes(nn.Module):
+#     def __init__(self,input_feature,
+#                  topic_s=5,topic_e=10):
+#         super(NMF_Nodes, self).__init__()
+#         self.H_list=[]
+#         self.topic_s=topic_s
+#         self.topic_e=topic_e
+#         for i in range(self.topic_s,self.topic_e+1):
+#             self.H_list.append(nn.Parameter(torch.zeros(size=(input_feature,self.topic_e,1))))
+#             nn.init.xavier_uniform_(self.H_list[i-self.topic_s],gain=1.414)
+#             self.H_list[i-self.topic_s][:,i:]=0
+#             # TODO ensure the positive H
+#             self.H_list[i-self.topic_s]=torch.abs(self.H_list[i-self.topic_s])
+#             # print(self.H_list[i-self.topic_s])
+#
+#         self.H_list=torch.cat([H for H in self.H_list],2).cuda()
+#
+#         self.W = nn.Parameter(torch.zeros(size=(input_feature,10)))
+#         nn.init.xavier_uniform_(self.W.data, gain=1.414)
+#
+#     def forward(self, x):
+#         W_list=[]
+#         for i in range(self.topic_e-self.topic_s+1):
+#             W=torch.matmul(x,self.H_list[:,:,i])
+#             W=W.unsqueeze(2)
+#             # print('Ws',W)
+#             W_list.append(W)
+#         W_list=torch.cat([W for W in W_list],2)
+#         # print('W',W_list.shape)
+#         nodes_num=int(x.shape[0])
+#         #TODO similarity or attention?
+#         new_nodes=[]
+#         for i in tqdm(range(nodes_num)):
+#             anchor_node=similarity(x[i],x[i])
+#             for j in range(nodes_num):
+#                 if j==i:continue
+#                 anchor_node_j=similarity(x[i],x[j])
+#                 counts=0
+#                 # for t in range(self.topic_e-self.topic_s):
+#                 #     max_si=torch.argmax(W_list[i,:,t])
+#                 #     max_s2=torch.argmax(W_list[j,:,t])
+#                 #     if max_si==max_s2:
+#                 #         counts+=1
+#                 anchor_node = anchor_node + counts/(self.topic_e-self.topic_s)*anchor_node_j
+#             anchor_node = anchor_node/nodes_num
+#             new_nodes.append(anchor_node.unsqueeze(0))
+#         new_nodes=torch.cat([n for n in new_nodes],0)
+#         # print('nodes',new_nodes.shape)
+#         return new_nodes
+
 
 class NMF_Nodes(nn.Module):
     def __init__(self, input_feature,
