@@ -14,16 +14,16 @@ class NMF_Nodes(nn.Module):
         for i in range(self.topic_s, self.topic_e + 1):
             self.H_list.append(nn.Parameter(torch.zeros(
                 size=(input_feature, self.topic_e, 1))))
-            # nn.init.xavier_uniform_(self.H_list[i - self.topic_s], gain=1.414)
+            nn.init.xavier_uniform_(self.H_list[i - self.topic_s], gain=1.414)
             self.H_list[i - self.topic_s][:, i:] = 0
             # TODO ensure the positive H
             self.H_list[i - self.topic_s] = torch.abs(self.H_list[i-self.topic_s])
             # print(self.H_list[i-self.topic_s])
 
-        self.H_list = torch.cat([H for H in self.H_list], 2).cuda()
+        self.H_list = torch.cat([H for H in self.H_list], 2).cuda()  
 
         self.W = nn.Parameter(torch.zeros(size=(input_feature, 10)))
-        # nn.init.xavier_uniform_(self.W.data, gain=1.414)
+        nn.init.xavier_uniform_(self.W.data, gain=1.414)
         # self.linear = nn.Linear(input_feature * 2, input_feature)
         # self.linear_do = nn.Dropout(p=.5)
 
@@ -31,7 +31,7 @@ class NMF_Nodes(nn.Module):
         # W_list = [(x @ self.H_list[..., i]).unsqueeze(2) for i in range(self.topic_e - self.topic_s + 1)]
         W_list = []
         for i in range(self.topic_e - self.topic_s + 1):
-            W = torch.matmul(x, self.H_list[:, :, i])
+            W = torch.matmul(x, self.H_list[:, :, i])  # REMARK: here we have assume that H is orthogonal!
             W = W.unsqueeze(2)
             # print('Ws',W)
             W_list.append(W)
@@ -43,7 +43,7 @@ class NMF_Nodes(nn.Module):
         t1 = x.repeat(N, 1)
         t2 = x.repeat(1, N).reshape(-1, D)
         # FIXME change this
-        t = torch.cat((t1, t2), 1)  # 
+        t = torch.cat((t1, t2), 1)
         sim = torch.cosine_similarity(t1, t2)
         sim = sim.unsqueeze(0)
         t = sim.T * t
@@ -64,7 +64,7 @@ class NMF_Nodes(nn.Module):
         new_nodes = torch.mean(new_n, dim=0)
         # print('nodes',new_nodes.shape)
         # new_nodes = self.linear_do(self.linear(new_nodes))
-        return new_nodes
+        return new_nodes, W_list, self.H_list
 
 
 class GraphAttentionLayer(nn.Module):
@@ -72,34 +72,27 @@ class GraphAttentionLayer(nn.Module):
     Simple GAT layer, similar to https://arxiv.org/abs/1710.10903
     """
 
-    def __init__(self, in_features, out_features, dropout, alpha, concat=True, useNMF=False):
+    def __init__(self, in_features, out_features, dropout, alpha, concat=True):
         super(GraphAttentionLayer, self).__init__()
         self.dropout = dropout
         self.in_features = in_features
         self.out_features = out_features
         self.alpha = alpha
         self.concat = concat
-        self.useNMF = useNMF
 
-        W_in_features = in_features * 2 if useNMF else in_features
         # W_in_features = in_features
 
-        self.W = nn.Parameter(torch.zeros(size=(W_in_features, out_features)))
+        self.W = nn.Parameter(torch.zeros(size=(in_features, out_features)))
         nn.init.xavier_uniform_(self.W.data, gain=1.414)
         self.a = nn.Parameter(torch.zeros(size=(2 * out_features, 1)))
         nn.init.xavier_uniform_(self.a.data, gain=1.414)
 
         self.leakyrelu = nn.LeakyReLU(self.alpha)
 
-        if self.useNMF:
-            self.NMFs = NMF_Nodes(input_feature=in_features)
 
     def forward(self, input, adj):
         # adding weight for input
         # adj means adjency matrix
-
-        if self.useNMF:
-            input = self.NMFs(input)
 
         h = torch.mm(input, self.W)
         N = h.size()[0]

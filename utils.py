@@ -9,8 +9,10 @@ from torch_geometric import datasets
 
 
 def load_raw(path="./data/cora/", dataset="cora"):
-    idx_features_labels = np.genfromtxt("{}{}.content".format(path, dataset), dtype=np.dtype(str))
-    edges_unordered = np.genfromtxt("{}{}.cites".format(path, dataset), dtype=np.int32)
+    idx_features_labels = np.genfromtxt(
+        "{}{}.content".format(path, dataset), dtype=np.dtype(str))
+    edges_unordered = np.genfromtxt(
+        "{}{}.cites".format(path, dataset), dtype=np.int32)
     features = sp.csr_matrix(idx_features_labels[:, 1:-1], dtype=np.float32)
     labels = encode_onehot(idx_features_labels[:, -1])
     return features, labels, edges_unordered
@@ -18,7 +20,8 @@ def load_raw(path="./data/cora/", dataset="cora"):
 
 def nmf_train(sp, n_topic):
     sp_df = DataFrame(sp)
-    model = NMF(n_components=n_topic, init="random", random_state=0, verbose=True)
+    model = NMF(n_components=n_topic, init="random",
+                random_state=0, verbose=True)
     W = model.fit_transform(sp_df)
     H = model.components_
     # W, H = torch.from_numpy(W), torch.from_numpy(H)
@@ -27,34 +30,35 @@ def nmf_train(sp, n_topic):
 
 def encode_onehot(labels):
     classes = set(labels)
-    classes_dict = {c: np.identity(len(classes))[i, :] for i, c in enumerate(classes)}
-    labels_onehot = np.array(list(map(classes_dict.get, labels)), dtype=np.int32)
+    classes_dict = {c: np.identity(len(classes))[
+        i, :] for i, c in enumerate(classes)}
+    labels_onehot = np.array(
+        list(map(classes_dict.get, labels)), dtype=np.int32)
     return labels_onehot
 
 
-def load_data(path="./data/cora/", dataset="cora", sample=False, use_nmf=False, n_topic=10):
+def load_data(path="./data/cora/", dataset="cora", sample=False):
     """Load citation network dataset (cora only for now)"""
     print('Loading {} dataset...'.format(dataset))
     if sample:
-        idx_features_labels, edges_unordered = dataset_sample(path, dataset, sample_factor=5, verbose=True)
+        idx_features_labels, edges_unordered = dataset_sample(
+            path, dataset, sample_factor=5, verbose=True)
     else:
-        idx_features_labels = np.genfromtxt("{}{}.content".format(path, dataset), dtype=np.dtype(str))
-        edges_unordered = np.genfromtxt("{}{}.cites".format(path, dataset), dtype=np.int32)
-        features = sp.csr_matrix(idx_features_labels[:, 1:-1], dtype=np.float32)
+        idx_features_labels = np.genfromtxt(
+            "{}{}.content".format(path, dataset), dtype=np.dtype(str))
+        edges_unordered = np.genfromtxt(
+            "{}{}.cites".format(path, dataset), dtype=np.int32)
+        features = sp.csr_matrix(
+            idx_features_labels[:, 1:-1], dtype=np.float32)
         labels = encode_onehot(idx_features_labels[:, -1])
 
     features = features.todense()
 
-    if use_nmf:
-        n = features.shape[0]
-        _, pos_mat = nmf_train(features, n_topic)
-        pos_vec = np.mean(pos_mat, axis=0)
-        features = np.concatenate((features, [pos_vec for _ in range(n)]), axis=1)  # n * 2m
-
     # build graph
     idx = np.array(idx_features_labels[:, 0], dtype=np.int32)
     idx_map = {j: i for i, j in enumerate(idx)}
-    edges = np.array(list(map(idx_map.get, edges_unordered.flatten())), dtype=np.int32).reshape(edges_unordered.shape)
+    edges = np.array(list(map(idx_map.get, edges_unordered.flatten())),
+                     dtype=np.int32).reshape(edges_unordered.shape)
     adj = sp.coo_matrix((np.ones(edges.shape[0]), (edges[:, 0], edges[:, 1])), shape=(labels.shape[0], labels.shape[0]),
                         dtype=np.float32)
 
@@ -106,9 +110,11 @@ def accuracy(output, labels):
 
 
 def dataset_sample(pth="./data/cora/", dataset="cora", sample_factor=3, verbose=False):
-    idx_features_labels = np.genfromtxt("{}{}.content".format(pth, dataset), dtype=np.dtype(str))
+    idx_features_labels = np.genfromtxt(
+        "{}{}.content".format(pth, dataset), dtype=np.dtype(str))
 
-    edges_unordered = np.genfromtxt("{}{}.cites".format(pth, dataset), dtype=np.int32)
+    edges_unordered = np.genfromtxt(
+        "{}{}.cites".format(pth, dataset), dtype=np.int32)
     edges_sample = []
     # get paper id
     source_nodes = np.unique(edges_unordered[:, 0])
@@ -137,7 +143,8 @@ def dataset_sample(pth="./data/cora/", dataset="cora", sample_factor=3, verbose=
         if verbose:
             print("step {}, add {} nodes".format(i, len(seen_new)))
         i += 1
-        if len(seen_new) == 0: break
+        if len(seen_new) == 0:
+            break
         seen_last = seen_new
     edges_sample = np.array(edges_sample, dtype=np.int32)
     if verbose:
@@ -149,7 +156,8 @@ def dataset_sample(pth="./data/cora/", dataset="cora", sample_factor=3, verbose=
         #     for c in conn:
         #         print("{} is at position {}".format(c, np.where(seen == v)[0]))
     seen = seen.astype(int)
-    idx_sample = [np.where(idx_features_labels[:, 0] == str(x))[0].item() for x in seen]
+    idx_sample = [np.where(idx_features_labels[:, 0] == str(x))[
+        0].item() for x in seen]
     idx_features_sample = idx_features_labels[idx_sample]
     return idx_features_sample, edges_sample
 
@@ -162,6 +170,18 @@ def load_pubmed():
     ple = datasets.Planetoid(root="./datasets/", name="PubMed")
     data = ple[0]
     return data.x, data.y, data.train_mask, data.val_mask, data.test_mask
+
+
+# def nmf_loss(X, Ws, Hs, alpha=0., l1_ratio=0.):
+#     n_samples = Ws.shape[-1]
+#     Ws = Ws.permute(2, 0, 1)
+#     Hs = Hs.permute(2, 1, 0)
+#     Xs = torch.stack([X for _ in range(n_samples)], dim=0)
+#     loss = .5 * (torch.norm(Xs - torch.bmm(Ws, Hs), p="fro", dim=[1, 2]) + 1e-8) ** 2 + \
+#         alpha * l1_ratio * torch.norm(Ws, p=1) + alpha * l1_ratio * torch.norm(Hs, p=1) + \
+#         .5 * alpha * (1 - l1_ratio) * (torch.norm(Ws, dim=[1, 2]) + 1e-8) ** 2 + \
+#         .5 * alpha * (1 - l1_ratio) * (torch.norm(Hs, dim=[1, 2]) + 1e-8) ** 2
+#     return torch.mean(loss)
 
 
 if __name__ == '__main__':
