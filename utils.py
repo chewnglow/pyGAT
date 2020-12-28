@@ -31,7 +31,7 @@ def nmf_train(sp, n_topic):
 def encode_onehot(labels):
     classes = set(labels)
     classes_dict = {c: np.identity(len(classes))[
-        i, :] for i, c in enumerate(classes)}
+                       i, :] for i, c in enumerate(classes)}
     labels_onehot = np.array(
         list(map(classes_dict.get, labels)), dtype=np.int32)
     return labels_onehot
@@ -157,7 +157,7 @@ def dataset_sample(pth="./data/cora/", dataset="cora", sample_factor=3, verbose=
         #         print("{} is at position {}".format(c, np.where(seen == v)[0]))
     seen = seen.astype(int)
     idx_sample = [np.where(idx_features_labels[:, 0] == str(x))[
-        0].item() for x in seen]
+                      0].item() for x in seen]
     idx_features_sample = idx_features_labels[idx_sample]
     return idx_features_sample, edges_sample
 
@@ -172,16 +172,28 @@ def load_pubmed():
     return data.x, data.y, data.train_mask, data.val_mask, data.test_mask
 
 
-# def nmf_loss(X, Ws, Hs, alpha=0., l1_ratio=0.):
-#     n_samples = Ws.shape[-1]
-#     Ws = Ws.permute(2, 0, 1)
-#     Hs = Hs.permute(2, 1, 0)
-#     Xs = torch.stack([X for _ in range(n_samples)], dim=0)
-#     loss = .5 * (torch.norm(Xs - torch.bmm(Ws, Hs), p="fro", dim=[1, 2]) + 1e-8) ** 2 + \
-#         alpha * l1_ratio * torch.norm(Ws, p=1) + alpha * l1_ratio * torch.norm(Hs, p=1) + \
-#         .5 * alpha * (1 - l1_ratio) * (torch.norm(Ws, dim=[1, 2]) + 1e-8) ** 2 + \
-#         .5 * alpha * (1 - l1_ratio) * (torch.norm(Hs, dim=[1, 2]) + 1e-8) ** 2
-#     return torch.mean(loss)
+def nmf_optim(X, Ws, Hs, alpha=0., l1_ratio=0.):
+    epochs = 1000
+    for i in range(Ws.shape[-1]):
+        W = Ws[..., i]
+        H = Hs[..., i]
+        for epoch in range(epochs):
+            H_1 = torch.mm(W.T, X)
+            H_2 = torch.mm(torch.mm(W.T, W), H)
+            H_new = torch.mm(H, H_1 / H_2)
+
+            W_1 = torch.mm(X, H.T)
+            W_2 = torch.mm(torch.mm(W, H), H.T)
+            W_new = torch.mm(W, W_1 / W_2)
+
+            div_H = H_new - H
+            div_W = W_new - W
+            print("iter {}, div_W = {}, div_H = {}".format(epoch, div_W, div_H))
+
+            H = H_new
+            W = W_new
+
+    return W, H
 
 
 if __name__ == '__main__':

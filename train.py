@@ -13,12 +13,10 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.autograd import Variable
 
-from utils import load_data, accuracy, load_pubmed, nmf_loss
+from utils import load_data, accuracy, load_pubmed, nmf_optim
 from models import GAT, SpGAT
 
 from sklearn.decomposition import NMF
-
-
 
 # Training settings
 parser = argparse.ArgumentParser()
@@ -29,17 +27,16 @@ parser.add_argument('--sparse', action='store_true', default=False, help='GAT wi
 parser.add_argument('--seed', type=int, default=114514, help='Random seed.')
 parser.add_argument('--epochs', type=int, default=10000, help='Number of epochs to train.')
 parser.add_argument('--lr', type=float, default=0.005, help='Initial learning rate.')
-parser.add_argument('--lr_nmf', type=float, default=0.005, help='Initial learning rate (NMF).')
-parser.add_argument('--weight_decay', type=float, default=5e-4, help='Weight decay (L2 loss on parameters).')
-parser.add_argument('--weight_decay_nmf', type=float, default=1e-4, help='Weight decay (L2 loss on parameters) of NMF.')
+# parser.add_argument('--lr_nmf', type=float, default=0.005, help='Initial learning rate (NMF).')
+parser.add_argument('--weight_decay', type=float, default=5e-5, help='Weight decay (L2 loss on parameters).')
+# parser.add_argument('--weight_decay_nmf', type=float, default=1e-4, help='Weight decay (L2 loss on parameters) of NMF.')
 parser.add_argument('--hidden', type=int, default=8, help='Number of hidden units.')
 parser.add_argument('--nb_heads', type=int, default=8, help='Number of head attentions.')
 parser.add_argument('--dropout', type=float, default=0.6, help='Dropout rate (1 - keep probability).')
-parser.add_argument('--alpha', type=float, default=0.2, help='Alpha for the leaky_relu.')
+# parser.add_argument('--alpha', type=float, default=0.2, help='Alpha for the.')
 parser.add_argument('--patience', type=int, default=100, help='Patience')
 parser.add_argument('--use_nmf', dest="use_nmf", default=True, action="store_true", help='Whether to use NMF')
-parser.add_argument('--n-topic', dest="n_topic", default=514, help='the topic count of NMF')
-
+# parser.add_argument('--n-topic', dest="n_topic", default=514, help='the topic count of NMF')
 
 args = parser.parse_args()
 use_nmf = args.use_nmf
@@ -50,9 +47,8 @@ args.cuda = not args.no_cuda and torch.cuda.is_available()
 # np.random.seed(args.seed)
 # torch.manual_seed(args.seed)
 if args.cuda:
-    os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+    torch.cuda.set_device(2)
     # torch.cuda.manual_seed(args.seed)
-
 
 # Load data
 # TODO: introduce parsed argument here
@@ -61,28 +57,24 @@ n_feature = features.shape[1]
 # Model and optimizer
 if args.sparse:
     model = SpGAT(nfeat=n_feature,
-                nhid=args.hidden, 
-                nclass=int(labels.max()) + 1, 
-                dropout=args.dropout, 
-                nheads=args.nb_heads,
-                alpha=args.alpha)
+                  nhid=args.hidden,
+                  nclass=int(labels.max()) + 1,
+                  dropout=args.dropout,
+                  nheads=args.nb_heads)
 else:
     model = GAT(nfeat=n_feature,
-                nhid=args.hidden, 
-                nclass=int(labels.max()) + 1, 
-                dropout=args.dropout, 
-                nheads=args.nb_heads, 
-                alpha=args.alpha, 
+                nhid=args.hidden,
+                nclass=int(labels.max()) + 1,
+                dropout=args.dropout,
+                nheads=args.nb_heads,
                 use_nmf=use_nmf)
 
-
-optimizer = optim.Adam(model.parameters(), 
-                       lr=args.lr, 
+optimizer = optim.Adam(model.parameters(),
+                       lr=args.lr,
                        weight_decay=args.weight_decay)
-optim_nmf = optim.Adam(model.parameters(), 
-                       lr=args.lr_nmf, 
-                       weight_decay=args.weight_decay_nmf)
-
+# optim_nmf = optim.Adam(model.parameters(),
+#                        lr=args.lr_nmf,
+#                        weight_decay=args.weight_decay_nmf)
 
 if args.cuda:
     if args.parallel:
@@ -103,15 +95,16 @@ def train(epoch):
     t = time.time()
     model.train()
     optimizer.zero_grad()
-    output, X, Ws, Hs = model(features, adj)
+    output = model(features, adj)
     loss_train = F.nll_loss(output[idx_train], labels[idx_train])
     acc_train = accuracy(output[idx_train], labels[idx_train])
-    loss_train.backward(retain_graph=True)
+    loss_train.backward()
     optimizer.step()
-    if use_nmf:
-        loss_train_nmf = nmf_loss(X, Ws, Hs)
-        loss_train_nmf.backward()
-        optim_nmf.step()
+    # if use_nmf:
+    #     W, H = nmf_optim(X, Ws, Hs)
+    #     loss_train_nmf = nmf_loss(X, Ws, Hs)
+    #     loss_train_nmf.backward()
+    #     optim_nmf.step()
 
     if not args.fastmode:
         # Evaluate validation set performance separately,
@@ -121,7 +114,7 @@ def train(epoch):
 
     loss_val = F.nll_loss(output[idx_val], labels[idx_val])
     acc_val = accuracy(output[idx_val], labels[idx_val])
-    print('Epoch: {:04d}'.format(epoch+1),
+    print('Epoch: {:04d}'.format(epoch + 1),
           'loss_train: {:.4f}'.format(loss_train.data.item()),
           'acc_train: {:.4f}'.format(acc_train.data.item()),
           'loss_val: {:.4f}'.format(loss_val.data.item()),
@@ -129,6 +122,7 @@ def train(epoch):
           'time: {:.4f}s'.format(time.time() - t))
 
     return loss_val.data.item()
+
 
 def compute_test():
     model.eval()
@@ -138,6 +132,7 @@ def compute_test():
     print("Test set results:",
           "loss= {:.4f}".format(loss_test.data[0]),
           "accuracy= {:.4f}".format(acc_test.data[0]))
+
 
 # Train model
 t_total = time.time()

@@ -14,7 +14,7 @@ class NMF_Nodes(nn.Module):
         for i in range(self.topic_s, self.topic_e + 1):
             self.H_list.append(nn.Parameter(torch.zeros(
                 size=(input_feature, self.topic_e, 1))))
-            nn.init.xavier_uniform_(self.H_list[i - self.topic_s], gain=1.414)
+            # nn.init.xavier_uniform_(self.H_list[i - self.topic_s], gain=1.414)
             self.H_list[i - self.topic_s][:, i:] = 0
             # TODO ensure the positive H
             self.H_list[i - self.topic_s] = torch.abs(self.H_list[i-self.topic_s])
@@ -23,7 +23,7 @@ class NMF_Nodes(nn.Module):
         self.H_list = torch.cat([H for H in self.H_list], 2).cuda()  
 
         self.W = nn.Parameter(torch.zeros(size=(input_feature, 10)))
-        nn.init.xavier_uniform_(self.W.data, gain=1.414)
+        # nn.init.xavier_uniform_(self.W.data, gain=1.414)
         # self.linear = nn.Linear(input_feature * 2, input_feature)
         # self.linear_do = nn.Dropout(p=.5)
 
@@ -49,7 +49,9 @@ class NMF_Nodes(nn.Module):
         t = sim.T * t
         t = t.reshape(N, N, -1)
 
-        W_max = torch.argmax(W_list, dim=1)
+        W_max = torch.argmax(W_list, dim=1).float()
+        # hyper = torch.matmul(W_max, W_max.T)
+        # hyper = hyper / (N * N * 2)
         # print(W_max, W_max.shape)
         W1 = W_max.repeat(N, 1).reshape(-1, N, self.topic_e - self.topic_s + 1)
         W2 = W_max.repeat(1, N).reshape(-1, N, self.topic_e - self.topic_s + 1)
@@ -64,7 +66,7 @@ class NMF_Nodes(nn.Module):
         new_nodes = torch.mean(new_n, dim=0)
         # print('nodes',new_nodes.shape)
         # new_nodes = self.linear_do(self.linear(new_nodes))
-        return new_nodes, W_list, self.H_list
+        return new_nodes
 
 
 class GraphAttentionLayer(nn.Module):
@@ -72,12 +74,11 @@ class GraphAttentionLayer(nn.Module):
     Simple GAT layer, similar to https://arxiv.org/abs/1710.10903
     """
 
-    def __init__(self, in_features, out_features, dropout, alpha, concat=True):
+    def __init__(self, in_features, out_features, dropout, concat=True):
         super(GraphAttentionLayer, self).__init__()
         self.dropout = dropout
         self.in_features = in_features
         self.out_features = out_features
-        self.alpha = alpha
         self.concat = concat
 
         # W_in_features = in_features
@@ -87,7 +88,7 @@ class GraphAttentionLayer(nn.Module):
         self.a = nn.Parameter(torch.zeros(size=(2 * out_features, 1)))
         nn.init.xavier_uniform_(self.a.data, gain=1.414)
 
-        self.leakyrelu = nn.LeakyReLU(self.alpha)
+        self.act = nn.ReLU()
 
 
     def forward(self, input, adj):
@@ -101,7 +102,7 @@ class GraphAttentionLayer(nn.Module):
             [h.repeat(1, N).view(N * N, -1), h.repeat(N, 1)], dim=1)
 
         a_input = a_input.view(N, -1, 2 * self.out_features)
-        e = self.leakyrelu(torch.matmul(a_input, self.a).squeeze(2))
+        e = self.act(torch.matmul(a_input, self.a).squeeze(2))
 
         zero_vec = -9e15 * torch.ones_like(e)
         attention = torch.where(adj > 0, e, zero_vec)
