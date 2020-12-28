@@ -48,3 +48,6 @@ Run on CUDA 11.0 + pytorch 1.6.0
 # Issues/Pull Requests/Feedbacks
 
 Don't hesitate to contact for any feedback or create issues/pull requests.
+
+# Changelog
+202012282102: best with val acc 0.83 (0.85 with leakyReLU)
