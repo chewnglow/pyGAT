@@ -14,15 +14,14 @@ class NMF_Nodes(nn.Module):
         for i in range(self.topic_s, self.topic_e + 1):
             self.H_list.append(nn.Parameter(torch.zeros(
                 size=(input_feature, self.topic_e, 1))))
-            # nn.init.xavier_uniform_(self.H_list[i - self.topic_s], gain=1.414)
+            # nn.init.kaiming_normal_(self.H_list[i - self.topic_s], nonlinearity="relu")
             self.H_list[i - self.topic_s][:, i:] = 0
             # TODO ensure the positive H
-            self.H_list[i - self.topic_s] = torch.abs(self.H_list[i-self.topic_s])
-            # print(self.H_list[i-self.topic_s])
+            self.H_list[i - self.topic_s] = torch.abs(self.H_list[i - self.topic_s])
 
-        self.H_list = torch.cat([H for H in self.H_list], 2).cuda()  
+        self.H_list = torch.cat([H for H in self.H_list], 2).cuda()
 
-        self.W = nn.Parameter(torch.zeros(size=(input_feature, 10)))
+        # self.W = nn.Parameter(torch.zeros(size=(input_feature, 10)))
         # nn.init.xavier_uniform_(self.W.data, gain=1.414)
         # self.linear = nn.Linear(input_feature * 2, input_feature)
         # self.linear_do = nn.Dropout(p=.5)
@@ -31,7 +30,7 @@ class NMF_Nodes(nn.Module):
         # W_list = [(x @ self.H_list[..., i]).unsqueeze(2) for i in range(self.topic_e - self.topic_s + 1)]
         W_list = []
         for i in range(self.topic_e - self.topic_s + 1):
-            W = torch.matmul(x, self.H_list[:, :, i])  # REMARK: here we have assume that H is orthogonal!
+            W = torch.matmul(x, self.H_list[..., i])  # REMARK: here we have assume that H is orthogonal!
             W = W.unsqueeze(2)
             # print('Ws',W)
             W_list.append(W)
@@ -50,8 +49,8 @@ class NMF_Nodes(nn.Module):
         t = t.reshape(N, N, -1)
 
         W_max = torch.argmax(W_list, dim=1).float()
-        # hyper = torch.matmul(W_max, W_max.T)
-        # hyper = hyper / (N * N * 2)
+        hyper = torch.matmul(W_max, W_max.T)
+        hyper = hyper / (N * N * 2)
         # print(W_max, W_max.shape)
         W1 = W_max.repeat(N, 1).reshape(-1, N, self.topic_e - self.topic_s + 1)
         W2 = W_max.repeat(1, N).reshape(-1, N, self.topic_e - self.topic_s + 1)
@@ -66,7 +65,7 @@ class NMF_Nodes(nn.Module):
         new_nodes = torch.mean(new_n, dim=0)
         # print('nodes',new_nodes.shape)
         # new_nodes = self.linear_do(self.linear(new_nodes))
-        return new_nodes
+        return new_nodes, hyper
 
 
 class GraphAttentionLayer(nn.Module):
@@ -89,7 +88,6 @@ class GraphAttentionLayer(nn.Module):
         nn.init.xavier_uniform_(self.a.data, gain=1.414)
 
         self.act = nn.ReLU()
-
 
     def forward(self, input, adj):
         # adding weight for input

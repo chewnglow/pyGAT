@@ -19,7 +19,7 @@ class GAT(nn.Module):
         self.out_att = GraphAttentionLayer(nhid * nheads * 2, nclass, dropout=dropout, concat=False)
 
         if use_nmf:
-            self.nmf = NMF_Nodes(input_feature=nhid * nheads, topic_s=500, topic_e=510)
+            self.nmf = NMF_Nodes(input_feature=nhid * nheads, topic_s=800, topic_e=820)
 
     def forward(self, x, adj):
         x = F.dropout(x, self.dropout, training=self.training)
@@ -29,9 +29,9 @@ class GAT(nn.Module):
         if self.use_nmf:
             # X_nmf = x.detach().clone()
             # x, W_nmf, H_nmf = self.NMFs(X_nmf)  # detach here to cut off the BP to other layers!
-            # x, hyper = self.nmf(X_nmf)  # hypergraph
-            x = self.nmf(x)  # default
-            # adj = adj - hyper  # hypergraph
+            x, hyper = self.nmf(x)  # hypergraph
+            # x = self.nmf(x)  # default
+            adj = adj - hyper  # hypergraph
         else:
             X_nmf = None
             W_nmf = None
