@@ -2,38 +2,41 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from sklearn.decomposition import NMF
+import math
+
+from torch_geometric.nn.inits import glorot
 
 
 class NMF_Nodes(nn.Module):
-    def __init__(self, input_feature,
-                 topic_s=5, topic_e=10):
+    def __init__(self, input_feature, topic_s=5, topic_e=10):
         super(NMF_Nodes, self).__init__()
         self.H_list = []
         self.topic_s = topic_s
         self.topic_e = topic_e
-        for i in range(self.topic_s, self.topic_e + 1):
-            self.H_list.append(nn.Parameter(torch.zeros(
-                size=(input_feature, self.topic_e, 1))))
-            # nn.init.kaiming_normal_(self.H_list[i - self.topic_s], nonlinearity="relu")
-            self.H_list[i - self.topic_s][:, i:] = 0
-            # TODO ensure the positive H
-            self.H_list[i - self.topic_s] = torch.abs(self.H_list[i - self.topic_s])
-
-        self.H_list = torch.cat([H for H in self.H_list], 2).cuda()
-
+        self.input_feature = input_feature
         # self.W = nn.Parameter(torch.zeros(size=(input_feature, 10)))
         # nn.init.xavier_uniform_(self.W.data, gain=1.414)
         # self.linear = nn.Linear(input_feature * 2, input_feature)
         # self.linear_do = nn.Dropout(p=.5)
+        self.nmf_solvers = [NMF(n_components=i, max_iter=300) for i in range(topic_s, topic_e + 1)]
 
     def forward(self, x):
         # W_list = [(x @ self.H_list[..., i]).unsqueeze(2) for i in range(self.topic_e - self.topic_s + 1)]
         W_list = []
+        x_nmf = x.detach().data.cpu().numpy()
         for i in range(self.topic_e - self.topic_s + 1):
-            W = torch.matmul(x, self.H_list[..., i])  # REMARK: here we have assume that H is orthogonal!
-            W = W.unsqueeze(2)
-            # print('Ws',W)
+            # print("training {}th NMF".format(i))
+            W = np.zeros((x.shape[0], self.topic_e))
+            W[:, :(i + self.topic_s)] = self.nmf_solvers[i].fit_transform(x_nmf)
+            W = torch.from_numpy(W).unsqueeze(2).cuda()
             W_list.append(W)
+            # H_list.append(self.nmf_solvers[i].components_)
+            # W = torch.matmul(x, self.H_list[..., i])  # REMARK: here we have assume that H is orthogonal!
+            # W = W.unsqueeze(2)
+            # print('Ws',W)
+            # W_list.append(W)
+        # H_list = torch.from_numpy(H_list).permute(2, 1, 0)  # transpose
         W_list = torch.cat([W for W in W_list], 2)
         # print('W',W_list.shape)
         N, D = int(x.shape[0]), int(x.shape[1])
@@ -89,11 +92,11 @@ class GraphAttentionLayer(nn.Module):
 
         self.act = nn.ReLU()
 
-    def forward(self, input, adj):
+    def forward(self, x, adj):
         # adding weight for input
         # adj means adjency matrix
 
-        h = torch.mm(input, self.W)
+        h = torch.mm(x, self.W)
         N = h.size()[0]
 
         a_input = torch.cat(
@@ -111,7 +114,64 @@ class GraphAttentionLayer(nn.Module):
         h_prime = torch.matmul(attention, h)
 
         if self.concat:
-            return F.elu(h_prime)
+            return F.relu(h_prime)
+        else:
+            return h_prime
+
+    def __repr__(self):
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
+
+
+class AltGraphAttentionLayer(nn.Module):
+    """
+    Simple GAT layer, similar to https://arxiv.org/abs/1710.10903
+    """
+
+    def __init__(self, in_features, out_features, dropout, concat=True):
+        super(AltGraphAttentionLayer, self).__init__()
+        self.dropout = dropout
+        self.in_features = in_features
+        self.out_features = out_features
+        self.concat = concat
+
+        # W_in_features = in_features
+        
+        self.W = nn.Parameter(torch.zeros(size=(in_features, out_features)))
+        glorot(self.W)
+        self.a = nn.Parameter(torch.zeros(size=(2 * out_features, 1)))
+        glorot(self.a)
+
+        self.act = nn.LeakyReLU()
+
+    def glorot(tensor):
+        if tensor is not None:
+            stdv = math.sqrt(6.0 / (tensor.size(-2) + tensor.size(-1)))
+            tensor.data.uniform_(-stdv, stdv)
+
+
+    def forward(self, x, adj):
+        # adding weight for input
+        # adj means adjency matrix
+
+        h = torch.mm(x, self.W)
+        N = h.size()[0]
+
+        a_input = torch.cat(
+            [h.repeat(1, N).view(N * N, -1), h.repeat(N, 1)], dim=1)
+
+        a_input = a_input.view(N, -1, 2 * self.out_features)
+        e = self.act(torch.matmul(a_input, self.a).squeeze(2))
+
+        zero_vec = -9e15 * torch.ones_like(e)
+        attention = torch.where(adj > 0, e, zero_vec)
+        attention = F.softmax(attention, dim=1)
+        attention = F.dropout(attention, self.dropout, training=self.training)
+
+        # h is the self info, this step means update
+        h_prime = torch.matmul(attention, h)
+
+        if self.concat:
+            return F.leaky_relu(h_prime)
         else:
             return h_prime
 

@@ -51,3 +51,4 @@ Don't hesitate to contact for any feedback or create issues/pull requests.
 
 # Changelog
 202012282102: best with val acc 0.83 (0.85 with leakyReLU)
+202012282155: + hypergraph 0.83~~~~

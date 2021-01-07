@@ -4,8 +4,13 @@ import torch
 from pandas import DataFrame
 # from surprise import SVD, Reader, Dataset
 # from surprise.model_selection import cross_validate
-from sklearn.decomposition import NMF
+from sklearn.decomposition import non_negative_factorization
 from torch_geometric import datasets
+from torch_geometric.utils import to_undirected
+from sklearn.metrics import roc_auc_score, average_precision_score
+import math
+from torch_geometric.nn.models import InnerProductDecoder
+
 
 
 def load_raw(path="./data/cora/", dataset="cora"):
@@ -79,8 +84,9 @@ def load_data(path="./data/cora/", dataset="cora", sample=False):
     idx_train = torch.LongTensor(idx_train)
     idx_val = torch.LongTensor(idx_val)
     idx_test = torch.LongTensor(idx_test)
+    edges = torch.from_numpy(edges.T).long()
 
-    return adj, features, labels, idx_train, idx_val, idx_test
+    return adj, features, labels, idx_train, idx_val, idx_test, edges
 
 
 def normalize_adj(mx):
@@ -172,29 +178,164 @@ def load_pubmed():
     return data.x, data.y, data.train_mask, data.val_mask, data.test_mask
 
 
+# def nmf_optim_ours(X, Ws, Hs, alpha=0., l1_ratio=0.):
+#     epochs = 1000
+#     Ws_new = torch.empty_like(Ws)
+#     Hs_new = torch.empty_like(Hs)
+#     for i in range(Ws.shape[-1]):
+#         W = Ws[..., i]
+#         H = Hs[..., i]
+#         H = H.T
+#         for epoch in range(epochs):
+#             H_1 = torch.mm(W.T, X)
+#             H_2 = torch.mm(torch.mm(W.T, W), H)
+#             H_tr = H_1 / H_2
+#             H_new = torch.mm(H, H_tr.T)
+# 
+#             W_1 = torch.mm(X, H.T)
+#             W_2 = torch.mm(torch.mm(W, H), H.T)
+#             W_tr = W_1 / W_2
+#             W_new = torch.mm(W, W_tr.T)
+# 
+#             div_H = H_new - H
+#             div_W = W_new - W
+#             print("iter {}, div_W = {}, div_H = {}".format(epoch, div_W, div_H))
+# 
+#             H = H_new
+#             W = W_new
+#         Ws_new[..., i] = W
+#         Hs_new[..., i] = H
+#     return Ws_new, Hs_new
+
+
 def nmf_optim(X, Ws, Hs, alpha=0., l1_ratio=0.):
     epochs = 1000
-    for i in range(Ws.shape[-1]):
-        W = Ws[..., i]
+    n_sample = Ws.shape[-1]
+    Ws = Ws.detach().data.cpu().numpy()
+    Hs = Hs.detach().data.cpu().numpy()
+    X = X.detach().data.cpu().numpy()
+    Ws_new = np.empty_like(Ws)
+    Hs_new = np.empty_like(Hs)
+
+    for i in range(n_sample):
         H = Hs[..., i]
-        for epoch in range(epochs):
-            H_1 = torch.mm(W.T, X)
-            H_2 = torch.mm(torch.mm(W.T, W), H)
-            H_new = torch.mm(H, H_1 / H_2)
+        W = Ws[..., i]
+        H = H.T
+        W_upd, H_upd, n_iter = non_negative_factorization(X, W=W, H=H, n_components=H.shape[0])
+        print("n_iter = {}".format(n_iter))
+        Ws_new[..., -1] = W_upd
+        Hs_new[..., -1] = H_upd.T
 
-            W_1 = torch.mm(X, H.T)
-            W_2 = torch.mm(torch.mm(W, H), H.T)
-            W_new = torch.mm(W, W_1 / W_2)
+    return Ws_new, Hs_new
 
-            div_H = H_new - H
-            div_W = W_new - W
-            print("iter {}, div_W = {}, div_H = {}".format(epoch, div_W, div_H))
 
-            H = H_new
-            W = W_new
+def adj2edgeidx(adj):
+    adj_u = np.triu(adj)
+    existed_links = np.where(adj_u != 0)
+    return torch.from_numpy(existed_links.T).cuda()
 
-    return W, H
+
+def train_test_split_edges(input_edge_index, num_nodes, val_ratio=0.05, test_ratio=0.1):
+    r"""Splits the edges of a :obj:`torch_geometric.data.Data` object
+    into positive and negative train/val/test edges, and adds attributes of
+    `train_pos_edge_index`, `train_neg_adj_mask`, `val_pos_edge_index`,
+    `val_neg_edge_index`, `test_pos_edge_index`, and `test_neg_edge_index`
+    to :attr:`data`.
+
+    Args:
+        input_edge_index: the original pyg-styled edge index array (2 * n_edge)
+        num_nodes: the number of nodes of the graph
+        val_ratio (float, optional): The ratio of positive validation
+            edges. (default: :obj:`0.05`)
+        test_ratio (float, optional): The ratio of positive test
+            edges. (default: :obj:`0.1`)
+
+    :rtype: :class:`torch_geometric.data.Data`
+    """
+
+    row, col = input_edge_index
+    edge_index = None
+
+    # Return upper triangular portion.
+    mask = row < col
+    row, col = row[mask], col[mask]
+
+    n_v = int(math.floor(val_ratio * row.size(0)))
+    n_t = int(math.floor(test_ratio * row.size(0)))
+
+    # Positive edges.
+    # TODO: correctly return values
+    perm = torch.randperm(row.size(0))
+    row, col = row[perm], col[perm]
+
+    r, c = row[:n_v], col[:n_v]
+    val_pos_edge_index = torch.stack([r, c], dim=0)
+    r, c = row[n_v:n_v + n_t], col[n_v:n_v + n_t]
+    test_pos_edge_index = torch.stack([r, c], dim=0)
+
+    r, c = row[n_v + n_t:], col[n_v + n_t:]
+    train_pos_edge_index = torch.stack([r, c], dim=0)
+    train_pos_edge_index = to_undirected(train_pos_edge_index)
+
+    # Negative edges.
+    neg_adj_mask = torch.ones(num_nodes, num_nodes, dtype=torch.uint8)
+    neg_adj_mask = neg_adj_mask.triu(diagonal=1).to(torch.bool)
+    neg_adj_mask[row, col] = 0
+
+    neg_row, neg_col = neg_adj_mask.nonzero(as_tuple=False).t()
+    perm = torch.randperm(neg_row.size(0))[:n_v + n_t]
+    neg_row, neg_col = neg_row[perm], neg_col[perm]
+
+    neg_adj_mask[neg_row, neg_col] = 0
+    train_neg_adj_mask = neg_adj_mask
+
+    row, col = neg_row[:n_v], neg_col[:n_v]
+    val_neg_edge_index = torch.stack([row, col], dim=0)
+
+    row, col = neg_row[n_v:n_v + n_t], neg_col[n_v:n_v + n_t]
+    test_neg_edge_index = torch.stack([row, col], dim=0)
+
+    # return train_pos_edge_index, val_pos_edge_index, val_neg_edge_index, test_pos_edge_index, test_neg_edge_index
+    return train_pos_edge_index, val_pos_edge_index, val_neg_edge_index
+
+
+def validate(z, pos_pred, neg_pred, pos_edge_index, neg_edge_index):
+    r"""Given latent variables :obj:`z`, positive edges
+    :obj:`pos_edge_index` and negative edges :obj:`neg_edge_index`,
+    computes area under the ROC curve (AUC) and average precision (AP)
+    scores.
+
+    Args:
+        z (Tensor): The latent space :math:`\mathbf{Z}`.
+        pos_edge_index (LongTensor): The positive edges to evaluate
+            against.
+        neg_edge_index (LongTensor): The negative edges to evaluate
+            against.
+    """
+    decoder = InnerProductDecoder()
+
+    pos_y = z.new_ones(pos_edge_index.size(1))
+    neg_y = z.new_zeros(neg_edge_index.size(1))
+    y = torch.cat([pos_y, neg_y], dim=0)
+
+    pos_pred = decoder(z, pos_edge_index, sigmoid=True)
+    neg_pred = decoder(z, neg_edge_index, sigmoid=True)
+    pred = torch.cat([pos_pred, neg_pred], dim=0)
+
+    y, pred = y.detach().cpu().numpy(), pred.detach().cpu().numpy()
+
+    return roc_auc_score(y, pred), average_precision_score(y, pred)
+
+
+def edgeidx2adj(edges, n_node):
+    edges = edges.T
+    adj = sp.coo_matrix((np.ones(edges.shape[0]), (edges[:, 0], edges[:, 1])), shape=(n_node, n_node),
+                        dtype=np.float32)
+    return torch.LongTensor(adj.todense())
 
 
 if __name__ == '__main__':
-    load_data(use_nmf=True)
+    adj, features, labels, idx_train, idx_val, idx_test, edge_index = load_data()
+    n_nodes, n_feature = features.shape
+    train_pos_edge_index = train_test_split_edges(edge_index, n_nodes)
+
